@@ -1,0 +1,93 @@
+#! /bin/sh
+#
+# Updatehosts  applies Fuel role classes to nodes in Foreman.
+#
+#       by Dmitriy Stremkovskiy <dstremkouski@mirantis.com>
+#       by Vasily Pleshakov <vpleshakov@mirantis.com>
+#
+### BEGIN INIT INFO
+# Provides:        Updatehosts
+# Required-Start:  $syslog $network
+# Required-Stop:   $syslog $network
+# Default-Start:   2 3 4 5
+# Default-Stop:    1
+# Short-Description: applies Fuel role classes to nodes in Foreman.
+# Description:     applies Fuel role classes to nodes in Foreman.
+### END INIT INFO
+
+NAME=update_hosts
+PATH=/sbin:/bin:/usr/sbin:/usr/bin
+DAEMON=/usr/sbin/${NAME}
+PIDFILE=/run/${NAME}.pid
+
+. /lib/lsb/init-functions
+
+[ -r /etc/default/${NAME} ] && . /etc/default/${NAME}
+
+exec_updhosts() {
+  if start-stop-daemon $@ --quiet --pidfile ${PIDFILE} --name ${NAME} ; then
+    log_end_msg 0
+  else
+    log_end_msg 1
+  fi
+}
+
+updhosts_status()
+{
+  if [ ! -f $PIDFILE ] ; then
+    # program is not running
+    return 3
+  fi
+
+  for pid in $(cat $PIDFILE) ; do
+    if ! ps --no-headers p "$pid" | grep ${NAME} > /dev/null ; then
+      # program is not running, bogus pidfile exists
+      return 1
+    fi
+  done
+
+  return 0
+}
+
+if [ ! -r "${DAEMON}" ]; then
+  echo "$1 not found or not readable"
+  exit 1
+fi
+
+if [ ! -x "${DAEMON}" ]; then
+  echo "$1 not executable"
+  exit 1
+fi
+
+case $1 in
+  start) log_daemon_msg "Starting ${NAME}"; exec_updhosts --start --make-pidfile --background --startas ${DAEMON}
+  ;;
+  stop) log_daemon_msg "Stopping ${NAME}"; exec_updhosts --stop
+  ;;
+  status)
+    log_daemon_msg "Checking status for ${NAME}";
+    updhosts_status
+    ret=$?
+    case "$ret" in
+    0)
+      echo "${NAME} is running."
+      ;;
+    1)
+      echo "${NAME} dead, but $PIDFILE exists."
+      ;;
+    *)
+      echo "${NAME} is not running."
+      ;;
+    esac
+    exit $ret
+  ;;
+  restart) shift
+    log_daemon_msg "Stopping ${NAME}"; exec_updhosts --stop
+    log_daemon_msg "Starting ${NAME}"; exec_updhosts --start --make-pidfile --background --startas ${DAEMON}
+  ;;
+  *)
+    echo "Usage: $0 {start|stop|status|restart}" && exit 1
+  ;;
+esac
+
+exit 0

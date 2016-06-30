@@ -1,0 +1,56 @@
+#!/bin/bash
+#
+# Updatehosts   Apply Fuel role classes to nodes in Foreman.
+#
+#       by Alexey Chekunov <achekunov@mirantis.com>
+
+USER="<%= @foreman_user -%>"
+PASS="<%= @foreman_password -%>"
+FOREMAN_URL="https://<%= @foreman_url -%>"
+NODENAME=$(hostname -f)
+ROLES="<%= @roles -%>"
+LOG="/var/log/update_hosts"
+declare -A hash_role_class #class mapping
+hash_role_class[controller]="<%= @controller -%>"
+hash_role_class[compute]="<%= @compute -%>"
+ex=0
+ex2=0
+
+#Check if node exist
+while [ $ex == 0 ]; do
+  curl -s -H "Accept:application/json" -k -u $USER:$PASS $FOREMAN_URL/api/hosts/$NODENAME | python -m json.tool | grep error > /dev/null 2>&1
+  ex=$?
+  if [ $ex == 0 ]; then
+    echo "Node $NODENAME was not found in foreman $(date)" >> $LOG
+    sleep 300
+  fi
+done
+
+
+for ROLE in $ROLES; do
+  if [ ${hash_role_class[$ROLE]+abc} ]; then
+    MOD=${hash_role_class[$ROLE]}
+  else
+    echo "There are no classes that should be applied for this role '$ROLE' $(date)" >> $LOG
+    continue
+  fi
+
+#Check if module exist
+  for MODULE in $MOD; do
+    while [ $ex2 == 0 ]; do
+      curl -X GET -s -H "Accept:application/json" -H "Content-Type:application/json" -k -u $USER:$PASS $FOREMAN_URL/api/puppetclasses/$MODULE | python -m json.tool | grep error > /dev/null 2>&1
+      ex2=$?
+      if [ $ex2 == 0 ]; then
+        echo "Module $MODULE was not found in foreman $(date)" >> $LOG
+        sleep 300
+      fi
+    done
+  done
+
+
+  for MODULE in $MOD; do
+      ID=$(curl -X GET -s -H "Accept:application/json" -H "Content-Type:application/json" -k -u $USER:$PASS $FOREMAN_URL/api/puppetclasses/$MODULE | python -c 'import sys, json; print json.load(sys.stdin)[sys.argv[1]]' id)
+      curl -s -H "Accept:application/json" -H "Content-Type:application/json" -k -u $USER:$PASS $FOREMAN_URL/api/hosts/$NODENAME/puppetclass_ids --data '{"puppetclass_id":"'$ID'"}' > /dev/null 2>&1
+      echo "Role $MODULE was applied on the node $NODENAME $(date)" >> $LOG
+  done
+done

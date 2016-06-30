@@ -1,0 +1,5 @@
+#!/bin/bash
+test $(find /etc/keepalived/ -name bucketchecks -type d -perm 0700 | wc -l) -eq 1 || exit 1
+for check in $(find /etc/keepalived/bucketchecks/ -iname *.check -type f -executable) ; do
+  ${check} || exit 1
+done;

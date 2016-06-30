@@ -1,0 +1,370 @@
+# Deployment groups
+- id: primary-lcm
+  type: group
+  version: &task_engine_version 2.0.0
+  role: [primary-lcm]
+  requires: [deploy_start]
+  required_for: [deploy_end]
+  tasks: &common_tasks
+    - hiera
+    - setup_repositories
+    - fuel_pkgs
+    - globals
+    - tools
+    - logging
+    - netconfig
+    - hosts
+    - firewall
+  parameters:
+    strategy:
+      type: one_by_one
+
+- id: lcm
+  type: group
+  version: *task_engine_version
+  role: [lcm]
+  requires: [deploy_start]
+  required_for: [deploy_end]
+  tasks: *common_tasks
+  parameters:
+    strategy:
+      type: parallel
+
+# Deployment tasks
+- id: puppet_generate_certificates
+  type: shell
+  version: *task_engine_version
+  role: master
+  requires: [pre_deployment_start]
+  required_for: [pre_deployment_end]
+  parameters:
+    cmd: |
+      if [ ! -d ./misc/puppet_ssl_certs ]
+        then mkdir -p ./misc/puppet_ssl_certs
+      fi
+      for node_ids in $(fuel2 node list --env {CLUSTER_ID} --format value | grep "lcm" | cut -f 1 -d " "); do
+        if [ ! -f ./misc/puppet_ssl_certs/{CLUSTER_ID}/ca/signed/node-"$node_ids"."$(dnsdomainname)".pem ]
+          then /usr/bin/puppet cert --generate node-"$node_ids"."$(dnsdomainname)" --dns_alt_names puppet,puppet."$(dnsdomainname)" --ssldir=./misc/puppet_ssl_certs/{CLUSTER_ID}
+        fi
+      done
+      for node_ids in $(fuel2 node list --env {CLUSTER_ID} --column id --format value); do
+        if [ ! -f ./misc/puppet_ssl_certs/{CLUSTER_ID}/ca/signed/node-"$node_ids"."$(dnsdomainname)".pem ]
+          then /usr/bin/puppet cert --generate node-"$node_ids"."$(dnsdomainname)" --ssldir=./misc/puppet_ssl_certs/{CLUSTER_ID}
+        fi
+      done
+    cwd: /var/www/nailgun/plugins
+    retries: 3
+    interval: 10
+    timeout: 120
+
+- id: rsync_puppet_certificates_lcm_nodes
+  type: sync
+  version: *task_engine_version
+  role: &lcm_nodes
+    - lcm
+    - primary-lcm
+  requires: [pre_deployment_start]
+  required_for: [pre_deployment_end]
+  cross-depends:
+    - name: puppet_generate_certificates
+      role: master
+  parameters:
+    src: rsync://{MASTER_IP}:/plugins/misc/puppet_ssl_certs/{CLUSTER_ID}/
+    dst: /var/lib/puppet/ssl
+
+- id: rsync_puppet_certificates_all
+  type: sync
+  version: *task_engine_version
+  role: ['/^(?!(?:(\b(primary-)?lcm\b))$).*$/']
+  requires: [pre_deployment_start]
+  required_for: [pre_deployment_end]
+  cross-depends:
+    - name: puppet_generate_certificates
+      role: master
+  parameters:
+    src: rsync://{MASTER_IP}:/plugins/misc/puppet_ssl_certs/{CLUSTER_ID}/private_keys/$(hostname -f).pem
+    dst: /var/lib/puppet/ssl/private_keys/
+
+- id: primary_perconadb_galera
+  type: puppet
+  version: *task_engine_version
+  groups: [primary-lcm]
+  requires: [keepalived]
+  required_for: [deploy_end]
+  reexecute_on: [deploy_changes]
+  parameters:
+    puppet_manifest: puppet/manifests/database.pp
+    puppet_modules: puppet/modules:/etc/puppet/modules
+    timeout: 1200
+
+- id: perconadb_galera
+  type: puppet
+  version: *task_engine_version
+  groups: [lcm]
+  requires: *common_tasks
+  required_for: [deploy_end]
+  reexecute_on: [deploy_changes]
+  cross-depends:
+    - name: primary_perconadb_galera
+  parameters:
+    puppet_manifest: puppet/manifests/database.pp
+    puppet_modules: puppet/modules:/etc/puppet/modules
+    timeout: 1200
+
+- id: nsm
+  type: puppet
+  version: *task_engine_version
+  role: *lcm_nodes
+  requires: *common_tasks
+  required_for: [deploy_end]
+  parameters:
+    puppet_manifest: puppet/manifests/nsm.pp
+    puppet_modules: puppet/modules:/etc/puppet/modules
+    timeout: 600
+
+- id: keepalived
+  type: puppet
+  version: *task_engine_version
+  groups: *lcm_nodes
+  requires: [nsm]
+  required_for: [deploy_end]
+  cross-depends:
+    - name: nsm
+      role: lcm
+  parameters:
+    puppet_manifest: puppet/manifests/keepalived.pp
+    puppet_modules: puppet/modules:/etc/puppet/modules
+    timeout: 600
+
+- id: haproxy
+  type: puppet
+  version: *task_engine_version
+  groups: *lcm_nodes
+  requires:
+    - keepalived
+    - primary_perconadb_galera
+    - perconadb_galera
+    - puppet
+  required_for: [deploy_end]
+  cross-depends:
+    - name: keepalived
+      role: lcm
+  parameters:
+    puppet_manifest: puppet/manifests/haproxy.pp
+    puppet_modules: puppet/modules:/etc/puppet/modules
+    timeout: 3600
+
+- id: puppet
+  type: puppet
+  version: *task_engine_version
+  groups: ['/.*/']
+  requires: *common_tasks
+  required_for: [deploy_end]
+  reexecute_on: [deploy_changes]
+  parameters:
+    puppet_manifest: puppet/manifests/puppet.pp
+    puppet_modules: puppet/modules:/etc/puppet/modules
+    timeout: 600
+
+- id: r10k_deploy
+  type: puppet
+  version: *task_engine_version
+  groups: *lcm_nodes
+  requires: *common_tasks
+  required_for: [r10k_init]
+  cross-depends:
+    - name: puppet
+      role: lcm
+    - name: puppet
+      role: primary-lcm
+  parameters:
+    puppet_manifest: puppet/manifests/r10k_deploy.pp
+    puppet_modules: puppet/modules:/etc/puppet/modules
+    timeout: 600
+
+- id: r10k_init
+  type: puppet
+  version: *task_engine_version
+  groups: *lcm_nodes
+  requires: [r10k_deploy]
+  required_for: [r10k_webhook]
+  parameters:
+    puppet_manifest: puppet/manifests/r10k_init.pp
+    puppet_modules: puppet/modules:/etc/puppet/modules
+    timeout: 600
+
+- id: r10k_webhook
+  type: puppet
+  version: *task_engine_version
+  groups: *lcm_nodes
+  requires: [r10k_init]
+  required_for: [deploy_end]
+  parameters:
+    puppet_manifest: puppet/manifests/r10k_webhook.pp
+    puppet_modules: puppet/modules:/etc/puppet/modules
+    timeout: 600
+
+- id: primary_foreman
+  type: puppet
+  version: *task_engine_version
+  groups: [primary-lcm]
+  requires:
+    - haproxy
+    - puppet
+    - primary_perconadb_galera
+  required_for: [deploy_end]
+  cross-depends:
+    - name: haproxy
+      role: lcm
+  parameters:
+    puppet_manifest: puppet/manifests/foreman.pp
+    puppet_modules: puppet/modules:/etc/puppet/modules
+    timeout: 3600
+
+- id: foreman
+  type: puppet
+  version: *task_engine_version
+  groups: [lcm]
+  requires:
+    - puppet
+    - perconadb_galera
+  required_for: [deploy_end]
+  cross-depends:
+    - name: primary_foreman
+      role: primary-lcm
+  parameters:
+    puppet_manifest: puppet/manifests/foreman.pp
+    puppet_modules: puppet/modules:/etc/puppet/modules
+    timeout: 3600
+
+- id: upload_facts_lcm
+  type: shell
+  version: *task_engine_version
+  role: ['/.*/']
+  requires: [post_deployment_start]
+  required_for: [hiera_lcm]
+  reexecute_on: [deploy_changes]
+  cross-depends:
+    - name: configdb_install
+      role: master
+    - name: nailgun_configdb_user
+      role: master
+  parameters:
+    cmd: ruby puppet/modules/plugin_lcm/files/configdb_facts.rb -u
+    retries: 3
+    interval: 20
+    timeout: 180
+    strategy:
+      type: one_by_one
+
+- id: hiera_lcm
+  type: puppet
+  version: *task_engine_version
+  role: *lcm_nodes
+  requires: [upload_facts_lcm]
+  required_for: [post_deployment_end]
+  reexecute_on: [deploy_changes]
+  parameters:
+    puppet_manifest: puppet/manifests/hiera.pp
+    puppet_modules: puppet/modules:/etc/puppet/modules
+    timeout: 600
+
+- id: upload_download_facts_lcm
+  type: shell
+  version: *task_engine_version
+  role: ['/.*/']
+  requires: [upload_configuration]
+  required_for: [pre_deployment_end]
+  reexecute_on: [deploy_changes]
+  cross-depends:
+    - name: configdb_install
+      role: master
+    - name: nailgun_configdb_user
+      role: master
+  parameters:
+    cmd: ruby puppet/modules/plugin_lcm/files/configdb_facts.rb -u
+    retries: 3
+    interval: 20
+    timeout: 180
+    strategy:
+      type: one_by_one
+
+- id: lcm_update_hosts
+  type: puppet
+  version: *task_engine_version
+  groups: ['/.*/']
+  requires: [deploy_start]
+  required_for: [deploy_end]
+  cross-depends:
+    - name: foreman
+      role: lcm
+    - name: haproxy
+      role: *lcm_nodes
+  parameters:
+    puppet_manifest: puppet/manifests/lcm_update_hosts.pp
+    puppet_modules: puppet/modules:/etc/puppet/modules
+    timeout: 600
+
+- id: configdb_install
+  type: shell
+  version: *task_engine_version
+  role: master
+  requires: [pre_deployment_start]
+  required_for: [pre_deployment_end]
+  parameters:
+    cmd: ./deployment_scripts/master/configdb_install.sh
+    retries: 1
+    interval: 10
+    timeout: 600
+
+- id: nailgun_configdb_user
+  type: shell
+  version: *task_engine_version
+  role: master
+  requires: [pre_deployment_start]
+  required_for: [pre_deployment_end]
+  parameters:
+    cmd: |
+      ./deployment_scripts/master/configdb_user.py {CLUSTER_ID} {PLUGIN_VERSION}
+      ./deployment_scripts/master/configdb_endpoint.py {CLUSTER_ID} {PLUGIN_VERSION}
+    retries: 1
+    interval: 10
+    timeout: 600
+
+- id: register_dashboard_link
+  type: shell
+  version: *task_engine_version
+  role: master
+  requires: [deploy_start]
+  required_for: [deploy_end]
+  parameters:
+    cmd: ./deployment_scripts/master/link_registrator.py {CLUSTER_ID} {PLUGIN_VERSION}
+    retries: 1
+    interval: 10
+    timeout: 120
+
+- id: netconfig
+  type: puppet
+  version: *task_engine_version
+  groups: ['/.*/']
+  requires:
+    - deploy_start
+    - tools
+  required_for: [deploy_end]
+  reexecute_on: [deploy_changes]
+  parameters:
+    puppet_manifest: /etc/puppet/modules/osnailyfacter/modular/netconfig/netconfig.pp
+    puppet_modules: /etc/puppet/modules
+    timeout: 3600
+
+- id: check_cluster_status
+  type: puppet
+  version: *task_engine_version
+  role: primary-lcm
+  required_for: [post_deployment_end]
+  requires: [hiera_lcm]
+  reexecute_on: [deploy_changes]
+  parameters:
+    puppet_manifest: puppet/manifests/check_stats.pp
+    puppet_modules: puppet/modules:/etc/puppet/modules
+    timeout: 3600

@@ -1,0 +1,292 @@
+require 'sinatra'
+require 'sinatra/config_file'
+require 'yaml'
+require 'json'
+require 'net/http'
+require 'uri'
+require 'pp'
+require 'socket'
+
+class R10kWebhook < Sinatra::Base
+
+  register Sinatra::ConfigFile
+  config_file 'config.yaml'
+  set :bind, settings.port
+  set :port, settings.bind
+
+# Get Smart-Proxies
+  uri = URI.parse(settings.foreman_api_call)
+  http = Net::HTTP.new(uri.host, uri.port)
+  http.use_ssl = true
+  http.verify_mode = OpenSSL::SSL::VERIFY_NONE
+  http.read_timeout = 300
+  call = Net::HTTP::Get.new(uri.request_uri)
+  call.basic_auth(settings.foreman_user, foreman_password)
+  res = http.request(call)
+  foreman_data = JSON.parse(res.body)
+
+
+  def self.r10k_cmd(cmd)
+    sleep_time = 20
+    5.times do |i|
+        system("sudo r10k #{cmd}")
+        if $? != 0
+            puts "Local cmd: [#{cmd}], previous status: Failure, retry #: #{i}"
+            sleep sleep_time
+        else
+            puts "Local cmd: [#{cmd}], status: Success"
+            break
+        end
+    end
+  end
+
+  def self.local_sync
+    self.r10k_cmd("deploy environment -pv")
+  end
+
+  def self.branch_sync(branch)
+    self.r10k_cmd("deploy environment #{branch} -pv")
+  end
+
+  def self.module_sync(mdl)
+    self.r10k_cmd("deploy module #{mdl} -v")
+  end
+
+  def self.lcm_sync(middlewares, branch, foreman_data)
+
+    sleep_time = 20
+
+    middlewares.each do |mv|
+      if mv == Socket.gethostname
+        puts "Performing local sync for myself"
+        self.branch_sync(branch)
+        res = self.foreman_sync(foreman_data)
+        if res.kind_of? Net::HTTPSuccess
+          puts "Import of puppet classes from foreman proxy complete.\n"
+        else
+          5.times do |i|
+            begin
+              resp = self.foreman_sync(foreman_data)
+              raise "'import_puppetclasses' on [#{mv}]: failure" unless resp.kind_of? Net::HTTPSuccess
+              break
+            rescue Exception => e
+              if (i < 4)
+                puts "Retrying, 'import_puppetclasses' attempt #{i} on [#{mv}], previous result: #{e.message}"
+                sleep sleep_time
+              else
+                puts "\n\nWARNING: Giving up to 'import_puppetclasses' on [#{mv}] after #{i} execution attempts\n\n"
+              end
+            end
+          end
+          next
+        end
+      end
+
+      url = "http://#{mv}:#{settings.middleware_port}/environment/update/#{branch}"
+      puts "Pushing update: #{branch} to: #{url}"
+      uri = URI.parse(url)
+
+      5.times do |i|
+        begin
+          http = Net::HTTP.new(uri.host, uri.port)
+          http.read_timeout = 300
+          push_call = Net::HTTP::Get.new(uri.request_uri)
+          res = http.request(push_call)
+
+          if res.kind_of? Net::HTTPSuccess
+            puts "Push to: [ #{url} ] status: Success.\n"
+            break
+          else
+            puts "Push to: [ #{url} ] status: Failure.\n"
+          end
+        rescue Exception => e
+          if (i < 4)
+            puts "Retrying, [ #{url} ] attempt #{i}, previous result: #{e.message}"
+            sleep sleep_time
+          else
+            puts "\n\nWARNING: Giving up on [ #{url} ] after #{i} execution attempts\n\n"
+          end
+        end
+      end
+    end
+  end
+
+  def self.foreman_sync(foreman_data)
+    response = nil
+    puts "Importing puppet classes into Foreman.\n"
+    uri = URI.parse(settings.foreman_api_call)
+    http = Net::HTTP.new(uri.host, uri.port)
+    http.use_ssl = true
+    http.verify_mode = OpenSSL::SSL::VERIFY_NONE
+    http.read_timeout = 600
+
+    foreman_data['results'].each do |result|
+      if result['name'] == Socket.gethostname
+        import_uri = URI.join(uri, "#{result['id']}/", 'import_puppetclasses')
+        req = Net::HTTP::Post.new(import_uri.request_uri)
+        req.basic_auth(settings.foreman_user, settings.foreman_password)
+        req['Content-Length'] = 0
+        req['Content-Type'] = 'application/json'
+        response = http.request(req)
+      end
+    end
+    puts "Import_puppetclasses request status: #{response.code}"
+    return response
+
+  end
+
+  self.local_sync
+
+  get '/environment/deploy/:environment' do
+    # Sanitize user input
+    pattern = /^[0-9A-z\.\-\_]+$/
+    unless pattern.match(params[:environment])
+      status 500
+      break "Not a valid environment.  Environments should be alphanumeric and only allow these symbols: '.', '-', '_'"
+    end
+
+    self.class.branch_sync(params[:environment])
+    res = self.class.foreman_sync(foreman_data)
+
+    if res.kind_of? Net::HTTPSuccess
+      status 200
+      "Import of puppet classes from foreman proxy complete.\n"
+    else
+      status 500
+      "Could not import puppet classes from foreman proxy.\n"
+      exit 1
+    end
+  end
+
+  get '/environment/update/:environment' do
+    # Sanitize user input
+    pattern = /^[0-9A-z\.\-\_]+$/
+    unless pattern.match(params[:environment])
+      status 500
+      break "Not a valid environment.  Environments should be alphanumeric and only allow these symbols: '.', '-', '_'"
+    end
+
+    self.class.branch_sync(params[:environment])
+
+    if $? != 0
+      status 500
+      "Failed to update puppet environments.\n"
+    else
+      status 200
+      "Puppet environments successfully updated.\n"
+    end
+
+  end
+
+  get '/module/deploy/:module' do
+    # Sanitize user input
+    pattern = /^[0-9A-z\_]+$/
+    unless pattern.match(params[:module])
+      status 500
+      break "Not a valid puppet module.  Name incorrect or something else nasty was being attempted."
+    end
+
+    self.class.module_sync(params[:module])
+    res = self.class.foreman_sync(foreman_data)
+
+    if res.kind_of? Net::HTTPSuccess
+      status 200
+      "Import of puppet classes from foreman proxy complete.\n"
+    else
+      status 500
+      "Could not import puppet classes from foreman proxy.\n"
+      exit 1
+    end
+  end
+
+  post '/webhooks/deploy/:hook' do
+
+    # Sanitize user input
+    pattern = /^[0-9A-z\.\-\_]+$/
+    unless pattern.match(params[:hook])
+      status 500
+      break "Not a valid environment.  Environments should be alphanumeric and only allow these symbols: '.', '-', '_'"
+    end
+
+    data = JSON.parse(request.env["rack.input"].read)
+    queue = Array.new
+
+## Push hook implementation, for 'Post-Receive WebHooks' plugin
+## payload source: https://confluence.atlassian.com/display/STASH039/POST+service+webhook+for+Stash
+    if params[:hook] == "push"
+      puts "Digesting hook: #{params[:hook]} from #{request.ip}\n "
+      data['refChanges'].each do |item|
+        queue.push(item['refId'].split("/").last)
+        queue.uniq!
+        pp (item['refId'].split("/")).last
+      end
+    end
+
+    @puppetmasters = settings.puppetmasters
+    peers = @puppetmasters.reject{ |e| e == Socket.gethostname }
+
+    queue.each do |q|
+      self.class.lcm_sync(peers, "#{q}", foreman_data)
+    end
+
+    puts "Performing Local sync for branch: #{params[:branch]}"
+    self.class.branch_sync(params[:branch])
+    res = self.class.foreman_sync(foreman_data)
+
+##
+    if res.kind_of? Net::HTTPSuccess
+      status 200
+      "Import of puppet classes from foreman proxy complete.\n"
+    else
+      status 500
+      "Could not import puppet classes from foreman proxy.\n"
+    end
+  end
+
+  get '/environment/sync_all/:branch' do
+
+    # Sanitize user input
+    pattern = /^[0-9A-z\.\-\_]+$/
+    unless pattern.match(params[:branch])
+      status 500
+      break "Not a valid environment.  Environments should be alphanumeric and only allow these symbols: '.', '-', '_'"
+    end
+
+    # Calculating, syncing peers first
+    @puppetmasters = settings.puppetmasters
+    peers = @puppetmasters.reject{ |e| e == Socket.gethostname }
+    self.class.lcm_sync(peers, "#{params[:branch]}", foreman_data)
+
+    puts "Performing Local sync for branch: #{params[:branch]}"
+    self.class.branch_sync(params[:branch])
+
+    res = self.class.foreman_sync(foreman_data)
+    if res.kind_of? Net::HTTPSuccess
+      status 200
+      "Import of puppet classes from foreman proxy complete.\n"
+    else
+      status 500
+      "Could not import puppet classes from foreman proxy.\n"
+    end
+  end
+
+
+  get '/diagnostic/:param' do |param|
+    case param
+      when 'puppetmasters'
+        @puppetmasters = settings.puppetmasters
+        if @puppetmasters
+          resp = { "puppetmaster_list" => @puppetmasters }
+          "Puppetmasters: #{resp.to_json}"
+        else
+          status 500
+          "Error: No puppetmasters found in config file\n"
+        end
+      else
+        status 501
+        "Error: unknown parameter: #{param}\n"
+    end
+  end
+
+end
+

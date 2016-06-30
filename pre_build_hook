@@ -1,0 +1,12 @@
+#!/bin/bash
+# all operations should be inside plugin's folder
+cd $(dirname $0)
+
+# fetching upstream modules
+./deployment_scripts/master/fetch_modules.sh || exit 1
+
+# fetching rpms and debs
+./deployment_scripts/master/fetch_packages.py || exit 1
+
+# serializing variables in deployment_tasks.yaml
+sed -i s/{PLUGIN_VERSION}/$(grep ^version: metadata.yaml | grep -Eo '([0-9]+\.)*[0-9]+')/g deployment_tasks.yaml

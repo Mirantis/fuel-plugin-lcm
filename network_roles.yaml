@@ -1,0 +1,22 @@
+- id: "lcm_mgmt"
+  default_mapping: "management"
+  properties:
+    subnet: true
+    gateway: false
+    vip:
+       - name: "lcm"
+         alias: "lcm"
+         node_roles:
+           - "primary-lcm"
+           - "lcm"
+- id: "lcm_pub"
+  default_mapping: "public"
+  properties:
+    subnet: true
+    gateway: false
+    vip:
+       - name: "lcmpub"
+         alias: "lcmpub"
+         node_roles:
+           - "primary-lcm"
+           - "lcm"

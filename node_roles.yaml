@@ -1,0 +1,7 @@
+lcm:
+  name: "LCM - controller"
+  description: "Install LCM controller"
+  has_primary: true                 # whether has primary role or not
+  public_ip_required: true          # whether requires public net or not
+  weight: 1000                      # weight that will be used for ordering on fuel ui
+  conflicts: '*'

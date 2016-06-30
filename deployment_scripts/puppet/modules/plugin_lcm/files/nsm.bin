@@ -1,0 +1,48 @@
+#!/bin/bash
+#
+# nsm core
+#
+# by Dmitriy Stremkovskiy <dstremkouski@mirantis.com>
+
+# Simple usage echo
+usage() {
+  echo "ERROR: $@"
+  echo -e
+  echo "Usage: $0 action [namespace]"
+  echo "  action: <start|stop|status>. This option is mandatory";
+  echo "  namespace: namespace name. Optional. If nothing given, every conf file within ${CONFD} will be processed";
+  exit 1
+}
+
+# Simple error echo
+xrror() {
+  echo "ERROR: $@"
+  exit 1
+}
+
+# Include dir
+CONFD=/etc/nsm.d
+[ -r /etc/default/nsm ] && . /etc/default/nsm
+[ ! -d ${CONFD} ] && xrror "${CONFD} not a dir"
+
+# Simple input checks
+if [ $# -lt 1 ] || [ $# -gt 2 ]; then usage "Wrong number of arguments passed"; fi
+[ $# -eq 1 ] && RS='^(stop|start|status)$' || RS='^(stop|start|status)\s+[a-Z0-9_]+$'
+if [[ ! "$@" =~ ${RS} ]]; then usage "Input check failed"; fi
+
+# Core
+case $# in
+  1) for nsm_file in $(find ${CONFD}/ -executable -iname *.nsm)
+    do
+      "${nsm_file}" "$1" || xrror "Script has exited with nonzero code: ${nsm_file}"
+    done;
+  ;;
+  2) [ -f "${CONFD}/$2.nsm" ] && [ -x "${CONFD}/$2.nsm" ] && . "${CONFD}/$2.nsm" "$1"
+    usage "No such script, script is not executable or script has exited with nonzero code: ${CONFD}/$2.nsm"
+  ;;
+  *) usage "Unknown error in the code. This should not happen"
+  ;;
+esac
+
+# We did our best
+exit 0

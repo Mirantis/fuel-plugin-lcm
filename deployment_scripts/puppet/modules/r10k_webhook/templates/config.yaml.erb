@@ -1,0 +1,18 @@
+### This file is managed by Puppet ###
+---
+puppetmasters:
+<% @puppetmasters.each do |master| %>
+  - <%= master %>
+<% end %>
+<% if @middleware_port -%>
+middleware_port: <%= @middleware_port %>
+<% end -%>
+<% if @foreman_user -%>
+foreman_user: <%= @foreman_user %>
+<% end -%>
+<% if @foreman_password -%>
+foreman_password: <%= @foreman_password %>
+<% end -%>
+<% if @foreman_api_call -%>
+foreman_api_call: <%= @foreman_api_call %>
+<% end -%>

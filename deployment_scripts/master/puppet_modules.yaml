@@ -1,0 +1,28 @@
+---
+- alternatives:
+    version: 0.3.0
+    url: https://github.com/voxpupuli/puppet-alternatives
+- dhcp:
+    version: 2.3.0
+    url: https://github.com/theforeman/puppet-dhcp
+- dns:
+    version: 3.2.0
+    url: https://github.com/theforeman/puppet-dns
+- extlib:
+    version: v0.11.0
+    url: https://github.com/puppet-community/puppetcommunity-extlib
+- foreman:
+    version: 5.1.0
+    url: https://github.com/theforeman/puppet-foreman
+- foreman_proxy:
+    version: 2.5.0
+    url: https://github.com/theforeman/puppet-foreman_proxy
+- keepalived:
+    version: 1.2.4
+    url: https://github.com/arioch/puppet-keepalived
+- puppet:
+    version: 5.0.0
+    url: https://github.com/theforeman/puppet-puppet
+- tftp:
+    version: 1.7.0
+    url: https://github.com/theforeman/puppet-tftp

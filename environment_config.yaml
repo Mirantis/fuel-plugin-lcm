@@ -1,0 +1,391 @@
+attributes:
+  metadata:
+    configdb:
+      tenant: "services"
+      service_name: "tuning-box"
+      service_type: "config"
+      service_description: "ConfigDB Service"
+      endpoint_location: "/config"
+    dashboard_links:
+    - title: LCM WebUI
+      description: Foreman WebUI link for LCM plugin
+    ports:
+      puppetagent: 8139
+      puppetmaster: 8140
+      perconadb: 3306
+      foreman_web: 443
+      foreman_proxy: 8443
+      foreman_redirect: 80
+      multicheck: 5555
+      galeracheck: 9200
+      middleware: 9292
+      haproxy_stats: 10000
+    lcm_namespace_name: "haproxy"
+    keepalived:
+      auth_type: "PASS"
+      garp_master_delay: 3
+      master_priority: 200
+      instance_name: "LCM"
+      cidr: "248.0.0.0/8"
+    haproxy_check:
+      puppetmaster: "/puppetmaster"
+      foreman_web: "/foremanweb"
+      foreman_proxy: "/foremanproxy"
+    foreman_cert_dir: "/var/lib/puppet/ssl/foreman"
+
+#Keystone password for configdb user
+  configdb_pass:
+    label: "Keystone password for configdb user"
+    description: "Keystone password for configdb user"
+    type: "password"
+    value: "ChangeMe"
+    weight: 10
+    restrictions: &hide
+      - condition: "settings:fuel-plugin-lcm.metadata.enabled != true"
+        action: hide
+
+  configdb_user:
+    label: "Keystone user for configdb"
+    description: "Keystone user for configdb"
+    type: "text"
+    value: "configdb"
+    weight: 5
+    restrictions: *hide
+
+# Keepalived
+  public_vip_enabled:
+    description: "Enable public vip reservation for LCM webui"
+    label: "Enable public VIP"
+    type: "checkbox"
+    value: false
+    weight: 40
+
+# R10k:
+  private_repo:
+    description: "Switch ON if R10k control repo is private."
+    label: "Configure private repo user"
+    type: "checkbox"
+    value: false
+    weight: 125
+    restrictions: *hide
+  r10k_key:
+    description: "Please supply private key for R10k to access a private repo over SSH."
+    label: "Private repo key"
+    type: "file"
+    value: ''
+    weight: 130
+    restrictions: &private_repo_hide
+      - condition: "settings:fuel-plugin-lcm.private_repo.value != true or settings:fuel-plugin-lcm.metadata.enabled != true"
+        action: hide
+  user:
+    description: "Please supply R10k username to access a private repo over SSH."
+    label: "R10k repo SSH user"
+    type: "text"
+    value: "puppetr10k"
+    weight: 131
+    restrictions: *private_repo_hide
+  mode:
+    description: "Please supply mode for R10k files"
+    label: "R10k privileges mode"
+    type: "text"
+    value: "0755"
+    weight: 132
+    restrictions: *private_repo_hide
+  r10k_do_init:
+    description: "If r10k should create puppet env after deployment"
+    label: "Create puppet env"
+    type: "checkbox"
+    value: false
+    weight: 135
+    restrictions: *hide
+  remote_repo:
+    description: "Please supply control repo link for R10k"
+    label: "R10k control repo link"
+    type: "text"
+    value: ''
+    weight: 155
+    restrictions: *hide
+
+# R10k Webhook:
+  port:
+    description: "Please supply port number for Middlware"
+    label: "Middleware Http port"
+    type: "text"
+    value: "9292"
+    weight: 165
+    restrictions: *hide
+  webhook_auth_user:
+    description: "All webhook related files will belong to this user"
+    label: "Application owner account"
+    type: "text"
+    value: "r10kwebhook"
+    weight: 170
+    restrictions: *hide
+
+# Foreman
+  ##### Source document from Scott:  https://gist.github.com/sbrimhall/79997bd90c7e5eca9e2f
+  foreman_user:
+    value: 'admin'
+    label: 'Foreman username'
+    type: "text"
+    description:
+    weight: 210
+    regex:
+      source: &letdig_regex '^[A-Za-z0-9]*$'
+      error: "Valid option is a sequence of letters and digits"
+    restrictions: *hide
+  foreman_password:
+    value:
+      generator: 'password'
+    label: 'Foreman password'
+    type: "password"
+    description:
+    weight: 220
+    regex:
+      source: *letdig_regex
+      error: "Valid option is a sequence of letters and digits"
+    restrictions: *hide
+  perconadb_root_password:
+    value:
+      generator: 'password'
+    label: 'PerconaDB root password'
+    type: "password"
+    description:
+    weight: 230
+    regex:
+      source: *letdig_regex
+      error: "Valid option is a sequence of letters and digits"
+    restrictions:
+      - condition: "settings:fuel-plugin-lcm.metadata.enabled"
+        action: hide
+  perconadb_check_password:
+    value:
+      generator: 'password'
+    label: 'PerconaDB check password'
+    type: "password"
+    description:
+    weight: 231
+    regex:
+      source: *letdig_regex
+      error: "Valid option is a sequence of letters and digits"
+    restrictions:
+      - condition: "settings:fuel-plugin-lcm.metadata.enabled"
+        action: hide
+  keepalived_psk:
+    value:
+      generator: 'password'
+    label: 'Keepalived psk password'
+    type: "password"
+    description:
+    weight: 232
+    regex:
+      source: *letdig_regex
+      error: "Valid option is a sequence of letters and digits"
+    restrictions:
+      - condition: "settings:fuel-plugin-lcm.metadata.enabled"
+        action: hide
+  foreman_db_password:
+    value:
+      generator: 'password'
+    label: 'Foreman database password'
+    type: "password"
+    description:
+    weight: 233
+    regex:
+      source: *letdig_regex
+      error: "Valid option is a sequence of letters and digits"
+    restrictions:
+      - condition: "settings:fuel-plugin-lcm.metadata.enabled"
+        action: hide
+  oauth_consumer_key:
+    value:
+      generator: 'password'
+      generator_arg: '32'
+    label: 'Oauth consumer key'
+    type: "password"
+    description: |
+      Oauth key and secret values for the Foreman instance
+      Leave it blank to get random ones.
+    weight: 250
+    regex:
+      source: *letdig_regex
+      error: "Valid option is a sequence of letters and digits"
+    restrictions: *hide
+  oauth_consumer_secret:
+    value:
+      generator: 'password'
+      generator_arg: '32'
+    label: 'Oauth consumer secret'
+    type: "password"
+    description: |
+      You can retrieve it later from
+      Foreman Administer > Settings > Auth
+    weight: 260
+    regex:
+      source: *letdig_regex
+      error: "Valid option is a sequence of letters and digits"
+    restrictions: *hide
+  own_ssl_certificate:
+    description:
+    label: "Use custom certificates on LCM nodes."
+    type: "checkbox"
+    value: false
+    weight: 265
+    restrictions: *hide
+  ssl_foreman_delimeter_begin:
+    value: ""
+    label: ""
+    type: "hidden"
+    description: &delimeter "----------------------------------------------------------------------------------------------------------"
+    weight: 263
+    restrictions: &hide_foreman_ssl
+      - condition: "settings:fuel-plugin-lcm.own_ssl_certificate.value != true or settings:fuel-plugin-lcm.metadata.enabled != true"
+        action: "hide"
+  ssl_foreman_delimeter_end:
+    value: ""
+    label: ""
+    type: "hidden"
+    description: *delimeter
+    weight: 292
+    restrictions: *hide_foreman_ssl
+  ssl_foreman_cert_private_key:
+    value: ''
+    label: 'SSL CERT private key'
+    type: "file"
+    description: |
+      Load a custom SSL CERT private key here  and
+      an appropriate certificate in the next field
+    weight: 275
+    restrictions: &own_ssl_certificate_hide
+      - condition: 'settings:fuel-plugin-lcm.own_ssl_certificate.value == true and (settings:fuel-plugin-lcm.ssl_foreman_cert_private_key.value.name == null or settings:fuel-plugin-lcm.ssl_foreman_cert.value.name == null or settings:fuel-plugin-lcm.ssl_foreman_ca.value.name == null)'
+        message: "Please, load both files, private key and certificate"
+        action: 'none'
+        strict: false
+      - condition: "settings:fuel-plugin-lcm.own_ssl_certificate.value != true or settings:fuel-plugin-lcm.metadata.enabled != true"
+        action: "hide"
+  ssl_foreman_cert:
+    value: ''
+    label: "SSL CERTIFICATE"
+    type: "file"
+    description: |
+      Load signed Foreman SSL certificate, also
+      please load the private key in the prev field
+    weight: 280
+    restrictions: *own_ssl_certificate_hide
+  ssl_foreman_ca:
+    value: ''
+    label: "SSL CA file"
+    type: "file"
+    description: |
+      Load custom SSL Certificate Authority file.
+      It is needed to check custom Foreman Certificate
+      If self-signed certificate is used, load it here
+    weight: 285
+    restrictions: *own_ssl_certificate_hide
+  ssl_crl_location:
+    value: ""
+    label: "SSL CRL file"
+    type: "file"
+    description: |
+      Load custom SSL CRL
+    weight: 290
+    restrictions:
+      - condition: "settings:fuel-plugin-lcm.own_ssl_certificate.value != true or settings:fuel-plugin-lcm.metadata.enabled != true"
+        action: "hide"
+  own_puppet_certificate:
+    description:
+    label: "Use custom puppet certificates on LCM nodes."
+    type: "checkbox"
+    value: false
+    weight: 350
+    restrictions:
+      - condition: "true != false" # Until the necessity of the Puppet CA will be discussed with Scott
+        action: hide
+  puppet_ssl_ca_location:
+    value: ''
+    label: "Puppet ssl ca location"
+    type: "text"
+    description: |
+      Provide path to custom SSL CA.
+      Ex: /var/lib/puppet/ssl/certs/ca.pem
+    weight: 360
+    restrictions: &own_puppet_certificate_hide
+      - condition: "settings:fuel-plugin-lcm.own_puppet_certificate.value != true or settings:fuel-plugin-lcm.metadata.enabled != true"
+        action: "hide"
+    regex:
+      source: &file_path '^(/[-A-Za-z0-9_./]*|^)$'
+      error: "Non valid option. Wrong symbol."
+  puppet_ssl_cert:
+    value: ''
+    label: "Puppet ssl cert"
+    type: "text"
+    description: |
+      Provide path to custom SSL CERT.
+      Ex: /var/lib/puppet/ssl/certs/fuel.domain.tld.pem
+    weight: 370
+    restrictions: *own_puppet_certificate_hide
+    regex:
+      source: *file_path
+      error: "Non valid option. Wrong symbol."
+  puppet_ssl_key:
+    value: ''
+    label: "Puppet ssl key"
+    type: "text"
+    description: |
+      Provide path to custom SSL KEY.
+      Ex: /var/lib/puppet/ssl/private_keys/fuel.domain.tld.pem
+    weight: 380
+    restrictions: *own_puppet_certificate_hide
+    regex:
+      source:  *file_path
+      error: "Non valid option. Wrong symbol."
+  foreman_base_url:
+    value: ""
+    label: "Foreman base url"
+    type: "text"
+    description: |
+      Smart proxy needs to know where Foreman API lives.
+      https://smart-proxy-FQDN by default
+    weight: 390
+    regex:
+      source: &url_regex '^(?:[hH][tT][tT][pP](?:[sS])?:\/\/)(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])+$|^$'
+      error: "Invalid URL"
+    restrictions: *hide
+  oauth_effective_user:
+    value: "admin"
+    label: "Oauth effective user"
+    type: "text"
+    description: "User to be used for REST interaction"
+    weight: 400
+    regex:
+      source: *letdig_regex
+      error: "Valid option is a sequence of letters and digits"
+    restrictions: *hide
+  tftp:
+    description:
+    label: "Use foreman TFTP"
+    type: "checkbox"
+    value: false
+    weight: 420
+    restrictions: *hide
+  dhcp:
+    description:
+    label: "Use foreman DHCP"
+    type: "checkbox"
+    value: false
+    weight: 430
+    restrictions: *hide
+  dns:
+    description:
+    label: "Use foreman DNS"
+    type: "checkbox"
+    value: false
+    weight: 440
+    restrictions: *hide
+  bmc:
+    description:
+    label: "Use foreman IPMI plugin"
+    type: "checkbox"
+    value: false
+    weight: 450
+    restrictions: *hide

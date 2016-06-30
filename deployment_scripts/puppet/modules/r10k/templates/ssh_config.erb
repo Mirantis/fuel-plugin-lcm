@@ -1,0 +1,5 @@
+Host <%= @private_config['repo_host'] %>
+  StrictHostKeyChecking no
+  Port <%= @private_config['repo_port'] %>
+  User <%= @private_config['username'] %>
+  IdentityFile <%= @private_config['key_path'] %>

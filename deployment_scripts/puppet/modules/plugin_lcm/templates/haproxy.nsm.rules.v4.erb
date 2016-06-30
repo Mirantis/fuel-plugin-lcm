@@ -1,0 +1,30 @@
+*filter
+:INPUT DROP [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+:LCM - [0:0]
+-A INPUT -i lo -j ACCEPT
+-A INPUT -p vrrp -m comment --comment "Keepalived VRRP" -j ACCEPT
+-A INPUT -p icmp --icmp-type=0 -m comment --comment "ICMP Reply" -j ACCEPT
+-A INPUT -p icmp --icmp-type=3 -m comment --comment "ICMP Unreachable" -j ACCEPT
+-A INPUT -p icmp --icmp-type=8 -m comment --comment "ICMP Request" -j ACCEPT
+-A INPUT -p tcp -m tcp --dport <%= @foreman_web_port -%> -m comment --comment "Foreman WebUI" -j ACCEPT
+-A INPUT -p tcp -m tcp --dport <%= @foreman_redirect -%> -m comment --comment "Http redirector for foreman WebUI" -j ACCEPT
+-A INPUT -p tcp -m tcp --dport <%= @middleware_port -%> -m comment --comment "Middleware" -j ACCEPT
+-A INPUT -s <%= @mgmt_cidr -%> -p tcp -m tcp --dport <%= @puppetmaster_port -%> -m comment --comment "Puppet master" -j ACCEPT
+<% @lcm_nodes_ips.sort.each do |ip| -%>
+-A INPUT -s <%= ip -%>/32 -j LCM
+<% end -%>
+-A LCM -p tcp -m tcp --sport <%= @foreman_web_port -%> -m comment --comment "Foreman WebUI for namespace" -j ACCEPT
+-A LCM -p tcp -m tcp --sport <%= @perconadb_port -%> -m comment --comment "MySQL for namespace" -j ACCEPT
+-A LCM -p tcp -m tcp --sport <%= @multicheck_port -%> -m comment --comment "Multicheck for namespace" -j ACCEPT
+-A LCM -p tcp -m tcp --sport <%= @puppetmaster_port -%> -m comment --comment "Puppet master for namespace" -j ACCEPT
+-A LCM -p tcp -m tcp --sport <%= @foreman_proxy_port -%> -m comment --comment "Foreman proxy for namespace" -j ACCEPT
+-A LCM -p tcp -m tcp --sport <%= @galeracheck_port -%> -m comment --comment "MySQL haproxy checks for namespace" -j ACCEPT
+-A LCM -p tcp -m tcp --sport <%= @middleware_port -%> -m comment --comment "Middleware for namespace" -j ACCEPT
+-A LCM -p tcp -m tcp --dport <%= @perconadb_port -%> -m comment --comment "MySQL for LCM nodes" -j ACCEPT
+-A LCM -p tcp -m tcp --dport <%= @foreman_proxy_port -%> -m comment --comment "Foreman proxy for LCM nodes" -j ACCEPT
+-A LCM -p tcp -m tcp --dport <%= @stats_port -%> -m comment --comment "Haproxy stats for LCM nodes" -j ACCEPT
+-A INPUT -m limit --limit 16/min -j LOG --log-prefix "IPTables-Dropped-IN: "
+-A INPUT -m limit --limit 16/min -j LOG --log-prefix "IPTables-Dropped-FWD: "
+COMMIT

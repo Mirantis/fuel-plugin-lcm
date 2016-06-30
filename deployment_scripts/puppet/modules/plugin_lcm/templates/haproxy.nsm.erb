@@ -1,0 +1,63 @@
+#!/bin/bash
+#
+# nsm <%= @lcm_namespace_name %>
+#
+# by Dmitriy Stremkovskiy <dstremkouski@mirantis.com>
+
+PATH=/sbin:/bin:/usr/sbin:/usr/bin
+ha_lock=/var/lock/nsm.<%= @lcm_namespace_name -%>.lock
+nsm_log=/var/log/<%= @lcm_namespace_name -%>.nsm.log
+echo "NSM: when [$(date)], action: [$1]" >>${nsm_log}
+
+# Simple input checks
+[ $# -ne 1 ] || case "$1" in
+  "start") [ -f ${ha_lock} ] && exit 1
+    ip netns add <%= @lcm_namespace_name -%> >>${nsm_log} 2>&1
+    [ $? -eq 0 ] && ip netns exec <%= @lcm_namespace_name -%> iptables-restore < /etc/iptables/<%= @lcm_namespace_name -%>.nsm.rules.v4 >>${nsm_log} 2>&1
+    [ $? -eq 0 ] && ip link add <%= @lcm_mgmt_veth_name -%>-host type veth peer name <%= @lcm_mgmt_veth_name -%>-ns >>${nsm_log} 2>&1
+    [ $? -eq 0 ] && ip li set <%= @lcm_mgmt_veth_name -%>-ns netns <%= @lcm_namespace_name -%> >>${nsm_log} 2>&1
+    [ $? -eq 0 ] && ifconfig <%= @lcm_mgmt_veth_name -%>-host up >>${nsm_log} 2>&1
+    [ $? -eq 0 ] && ip netns exec <%= @lcm_namespace_name -%> ifconfig <%= @lcm_mgmt_veth_name -%>-ns up >>${nsm_log} 2>&1
+    [ $? -eq 0 ] && ip netns exec <%= @lcm_namespace_name -%> ip ad add <%= @ka_ip -%> dev <%= @lcm_mgmt_veth_name -%>-ns >>${nsm_log} 2>&1
+    [ $? -eq 0 ] && ip netns exec <%= @lcm_namespace_name -%> ip ro ad <%= @lcm_ka_cidr -%> dev <%= @lcm_mgmt_veth_name -%>-ns >>${nsm_log} 2>&1
+    [ $? -eq 0 ] && ip netns exec <%= @lcm_namespace_name -%> ip ro ad <%= @mgmt_cidr -%> dev <%= @lcm_mgmt_veth_name -%>-ns >>${nsm_log} 2>&1
+    [ $? -eq 0 ] && brctl addif <%= @lcm_mgmt_iface -%> <%= @lcm_mgmt_veth_name -%>-host >>${nsm_log} 2>&1
+    [ $? -eq 0 ] && ip ro ad <%= @lcm_ka_cidr -%> dev <%= @lcm_mgmt_iface -%> >>${nsm_log} 2>&1
+<% if @lcm_hapub_enabled -%>
+    [ $? -eq 0 ] && ip link add <%= @lcm_pub_veth_name -%>-host type veth peer name <%= @lcm_pub_veth_name -%>-ns >>${nsm_log} 2>&1
+    [ $? -eq 0 ] && ip li set <%= @lcm_pub_veth_name -%>-ns netns <%= @lcm_namespace_name -%> >>${nsm_log} 2>&1
+    [ $? -eq 0 ] && ifconfig <%= @lcm_pub_veth_name -%>-host up >>${nsm_log} 2>&1
+    [ $? -eq 0 ] && ip netns exec <%= @lcm_namespace_name -%> ifconfig <%= @lcm_pub_veth_name -%>-ns up >>${nsm_log} 2>&1
+    [ $? -eq 0 ] && brctl addif <%= @lcm_pub_iface -%> <%= @lcm_pub_veth_name -%>-host >>${nsm_log} 2>&1
+<% end -%>
+    [ $? -eq 0 ] && touch ${ha_lock} >>${nsm_log} 2>&1
+    [ $? -eq 0 ] && test -d /etc/nsm/<%= @lcm_namespace_name -%> && find /etc/nsm/<%= @lcm_namespace_name -%>/ -executable -name *.start -exec {} \; >>${nsm_log} 2>&1
+    [ $? -eq 0 ] && exit 0
+  ;;
+  "stop") test -d /etc/nsm/<%= @lcm_namespace_name -%> && find /etc/nsm/<%= @lcm_namespace_name -%>/ -executable -name *.stop -exec {} \; >>${nsm_log} 2>&1
+    brctl delif <%= @lcm_mgmt_iface -%> <%= @lcm_mgmt_veth_name -%>-host >>${nsm_log} 2>&1
+<% if @lcm_hapub_enabled -%>
+    brctl delif <%= @lcm_pub_iface -%> <%= @lcm_pub_veth_name -%>-host >>${nsm_log} 2>&1
+<% end -%>
+    ip netns del <%= @lcm_namespace_name -%> >>${nsm_log} 2>&1
+    ip ro del <%= @lcm_ka_cidr -%> dev <%= @lcm_mgmt_iface -%> >>${nsm_log} 2>&1
+    ip li del <%= @lcm_mgmt_veth_name -%>-host >>${nsm_log} 2>&1
+<% if @lcm_hapub_enabled -%>
+    ip li del <%= @lcm_pub_veth_name -%>-host >>${nsm_log} 2>&1
+<% end -%>
+    rm -f ${ha_lock} >>${nsm_log} 2>&1
+    exit $?
+  ;;
+  "status")
+    test $(ip netns | grep -cE '^<%= @lcm_namespace_name -%>$') -eq 1 || exit 1
+    test $(ip netns exec <%= @lcm_namespace_name -%> ip ro sh | wc -l) -gt 0 || exit 1
+    test $(ip netns exec <%= @lcm_namespace_name -%> ip ad l dev <%= @lcm_mgmt_veth_name -%>-ns | grep -Ec '([0-9]+\.){3}[0-9]+\/[0-9]+') -gt 0 || exit 1
+    exit 0
+  ;;
+  *)
+    exit 1
+  ;;
+esac
+
+# We did our best
+exit 1

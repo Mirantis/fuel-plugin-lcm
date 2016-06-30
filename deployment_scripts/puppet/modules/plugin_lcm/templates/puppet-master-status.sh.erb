@@ -1,0 +1,9 @@
+#!/bin/sh
+
+. "/lib/lsb/init-functions"
+
+NAME="master"
+DAEMON="/usr/bin/puppet"
+PIDFILE="/run/puppet/${NAME}.pid"
+
+status_of_proc -p "${PIDFILE}" "${DAEMON}" "${NAME}"

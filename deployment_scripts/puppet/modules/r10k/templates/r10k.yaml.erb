@@ -1,0 +1,11 @@
+:cachedir: <%= @cachedir %>
+<% unless @postrun.empty? -%>
+postrun:
+<% @postrun.each do |arg| -%>
+  - <%= arg %>
+<% end -%>
+<% end -%>
+sources:
+  control_repo:
+    remote: <%= @remote_repo %>
+    basedir: '/etc/puppet/environments'

@@ -1,0 +1,59 @@
+#! /bin/sh
+#
+# nsm   ip namespace manager.
+#
+#       by Dmitriy Stremkovskiy <dstremkouski@mirantis.com>
+#
+### BEGIN INIT INFO
+# Provides:        nsm
+# Required-Start:  $syslog $network
+# Required-Stop:   $syslog $network
+# Default-Start:   2 3 4 5
+# Default-Stop:    1
+# Short-Description: Manages ip namespace scripts
+# Description:     Manages ip namespace scripts
+### END INIT INFO
+
+NAME=nsm
+PATH=/sbin:/bin:/usr/sbin:/usr/bin
+DAEMON=/usr/sbin/${NAME}
+
+. /lib/lsb/init-functions
+
+[ -r /etc/default/${NAME} ] && . /etc/default/${NAME}
+
+exec_nsm() {
+  if start-stop-daemon --start --quiet --exec ${DAEMON} "$@"; then
+    log_end_msg 0
+  else
+    log_end_msg 1
+  fi
+}
+
+if [ ! -r "${DAEMON}" ]; then
+  echo "$1 not found or not readable"
+  exit 1
+fi
+
+if [ ! -x "${DAEMON}" ]; then
+  echo "$1 not executable"
+  exit 1
+fi
+
+case $1 in
+  start) log_daemon_msg "Starting ${NAME}"; exec_nsm "$@"
+  ;;
+  stop) log_daemon_msg "Stopping ${NAME}"; exec_nsm "$@"
+  ;;
+  status) log_daemon_msg "Checking status for ${NAME}"; exec_nsm "$@"
+  ;;
+  restart) shift
+    log_daemon_msg "Stopping ${NAME}"; exec_nsm stop "$@"
+    log_daemon_msg "Starting ${NAME}"; exec_nsm start "$@"
+  ;;
+  *)
+    echo "Usage: $0 {start|stop|status|restart}" && exit 1
+  ;;
+esac
+
+exit 0

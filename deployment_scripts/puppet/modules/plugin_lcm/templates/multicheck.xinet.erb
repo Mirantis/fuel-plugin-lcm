@@ -1,0 +1,18 @@
+# This file is being maintained by Puppet.
+# DO NOT EDIT
+
+service multicheck
+{
+	type		= UNLISTED
+        port            = <%= @multicheck_port %>
+        disable         = no
+        socket_type     = stream
+        protocol        = tcp
+        wait            = no
+        user            = root
+        group           =
+        groups          = yes
+        server          = /usr/local/bin/multicheck
+        log_on_success  =
+        flags           = REUSE
+}
